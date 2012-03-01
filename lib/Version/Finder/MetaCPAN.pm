@@ -14,8 +14,18 @@ our @EXPORT_OK = qw(find);
     use Version::Finder::MetaCPAN;
     
     my $reqs = CPAN::Meta::Requirements->new;
+    $reqs->exact_version('Foo' => '1.00');
 
     my $needs = Version::Finder::MetaCPAN::find($reqs);
+    
+    # Returns something like
+    # [
+    #  {
+    #   version      => 1.00,
+    #   download_url => 'http://cpan.metacpan.org/authors/id/E/EX/EXAMPLE/Foo-1.00.tar.gz',
+    #   distribution => 'Foo'
+    #  }
+    # ]
 
 =head1 DESCRIPTION
 
@@ -28,7 +38,7 @@ Calling C<find> creates a search with a series of filters that returns the
 most recent release of a distribution that satisfies the requirements. It
 understands all of the restrictions defined by L<CPAN::Meta::Requirements>.
 
-=function find
+=function find ($requirements)
 
 Given a L<CPAN::Meta::Requirements> object, returns an arrayref of hashrefs
 that point to the specific releases of each specified distribution.
@@ -74,7 +84,7 @@ sub find {
 
         my $results = $es->search(
             query       => { match_all => {} },
-            fields      => [ qw(version version_numified download_url distribution) ],
+            fields      => [ qw(version download_url distribution) ],
             filter      => $filter,
             sort        => { version_numified => { order => 'desc' } },
             index       => 'v0',
