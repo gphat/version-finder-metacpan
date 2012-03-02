@@ -27,6 +27,7 @@ use version;
     #   version      => 1.00,
     #   download_url => 'http://cpan.metacpan.org/authors/id/E/EX/EXAMPLE/Foo-1.00.tar.gz',
     #   distribution => 'Foo'
+    #   # and a bunch of other stuff
     #  }
     # ]
 
@@ -41,6 +42,50 @@ Calling C<find> creates a search with a series of filters that returns the
 most recent release of a distribution that satisfies the requirements. It
 understands all of the restrictions defined by L<CPAN::Meta::Requirements>.
 
+=cut
+
+has '_es' => (
+    is => 'ro',
+    isa => 'ElasticSearch',
+    lazy => 1,
+    default => sub {
+        ElasticSearch->new(servers => 'api.metacpan.org', no_refresh => 1)
+    }
+);
+
+has '_mca' => (
+    is => 'ro',
+    isa => 'MetaCPAN::API',
+    lazy => 1,
+    default => sub {
+        MetaCPAN::API->new
+    }
+);
+
+has '_distcache' => (
+    traits => [ 'Hash' ],
+    is => 'ro',
+    isa => 'HashRef',
+    default => sub { { } },
+    handles => {
+        add_to_dist_cache   => 'set',
+        get_from_dist_cache => 'get',
+        in_dist_cache       => 'exists'
+    }
+);
+
+has '_seencache' => (
+    traits => [ 'Hash' ],
+    is => 'ro',
+    isa => 'HashRef',
+    default => sub { { } },
+    handles => {
+        add_to_seen_cache   => 'set',
+        get_from_seen_cache => 'get',
+        in_seen_cache       => 'exists'
+    }
+);
+
 =method find ($requirements)
 
 Given a L<CPAN::Meta::Requirements> object, returns an arrayref of hashrefs
@@ -48,16 +93,10 @@ that point to the specific releases of each specified distribution.
 
 =cut
 
-# Make this an attr
-my %distcache = ();
-my %desccache = ();
-
 sub find {
     my ($self, $req) = @_;
 
     my $reqs = $req->as_string_hash;
-
-    my $es = ElasticSearch->new(servers => 'api.metacpan.org', no_refresh => 1);
 
     my @results = ();
     foreach my $pack (keys %{ $reqs }) {
@@ -102,7 +141,7 @@ sub find {
             }
         }
 
-        my $results = $es->search(
+        my $results = $self->_es->search(
             query       => { match_all => {} },
             fields      => '*', #[ qw(version download_url distribution) ],
             filter      => $filter,
@@ -122,6 +161,13 @@ sub find {
     return \@results;
 }
 
+=method find_distribution_for_module ('Some::Module')
+
+Find the name of the distribution that provides the module with the specified
+name.
+
+=cut
+
 sub find_distribution_for_module {
     my ($self, $module) = @_;
     
@@ -130,32 +176,41 @@ sub find_distribution_for_module {
         # Weird.
         $module =~ s/-/::/g;
     }
-    if(exists($distcache{$module})) {
+    if($self->in_dist_cache($module)) {
         # print "## Cache hit\n";
-        return $distcache{$module};
+        return $self->get_from_dist_cache($module);
     }
-    # XX Make this lazy
-    my $mcpan  = MetaCPAN::API->new;
     my $dist = undef;
     try {
         # print "!! $module\n";
-        my $result = $mcpan->fetch('/module/'.$module);
+        my $result = $self->_mca->fetch('/module/'.$module);
         if(defined($result)) {
             $dist = $result->{distribution};
         }
-        $distcache{$module} = $dist;
+        $self->add_to_dist_cache($module, $dist);
     } catch {
-        print STDERR "Failed to find /module/$module, try other things?\n";
+        print STDERR "Failed to find $module, try other things?\n";
     };
     
     return $dist;
 }
 
+=method build_deps ($reqs)
+
+Given a L<CPAN::Meta::Requirements> object this method inspects the
+dependencies recursively and returns a new L<CPAN::Meta::Requirements> object
+that contains the combined requirements of the original object and all
+dependents.
+
+=cut
+
 sub build_deps {
     my ($self, $req) = @_;
     
+    my $finalreqs = $req->clone;
+    
     # Get the information from metacpan
-    my $modules = $self->find($req);
+    my $modules = $self->find($finalreqs);
     
     # Check each module…
     foreach my $mod (@{ $modules }) {
@@ -212,19 +267,19 @@ sub build_deps {
             #  Checking the cache
             #  Checking that the version we're being asked to see is >= what we already have
             #  Verifying that the requirements don't hate the module+version
-            unless(exists($desccache{$dist}) && (version->parse($ver)->numify >= $desccache{$dist}) && $req->accepts_module($dist => $ver)) {
+            unless($self->in_seen_cache($dist) && (version->parse($ver)->numify >= $self->get_from_seen_cache($dist)) && $finalreqs->accepts_module($dist => $ver)) {
                 # Make an entry in the cache
-                $desccache{$dist} = version->parse($ver)->numify;
+                $self->add_to_seen_cache($dist, version->parse($ver)->numify);
                 # Recurse! Find the deps of this one!
                 my $deeper = $self->build_deps($new_reqs);
                 if(defined($deeper) && scalar($deeper->required_modules)) {
                     # Add our sub-calls reqs to ours
-                    $req->add_requirements($deeper);
+                    $finalreqs->add_requirements($deeper);
                 }
             }
         }
     }
-    return $req;
+    return $finalreqs;
 }
 
 1;
