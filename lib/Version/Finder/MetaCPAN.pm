@@ -42,6 +42,24 @@ Calling C<find> creates a search with a series of filters that returns the
 most recent release of a distribution that satisfies the requirements. It
 understands all of the restrictions defined by L<CPAN::Meta::Requirements>.
 
+=head1 OVERVIEW
+
+Version::Finder::MetaCPAN is able to answer this question: Given a couple
+of modules and their requirements, what do I need to fetch from CPAN to get
+it all working?
+
+    my $reqs = CPAN::Meta::Requirements->new;
+    $reqs->add_minimum('Moose' => '2.0');
+    $reqs->add_maximum('Graphics::Primitive' => '0.60'); # Maybe 1.0 is incompatible
+    $reqs->exact_version('Try::Tiny' => '0.11'); # I insist!
+    
+    my $vf = Version::Finder::MetaCPAN->new;
+    my $results = $vf->find($results);
+
+    foreach my $dep (@{ $results }) {
+        print $dep->{download_url}."\n";
+    }
+
 =cut
 
 has '_es' => (
