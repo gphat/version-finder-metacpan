@@ -33,6 +33,9 @@ use version;
 
 =head1 DESCRIPTION
 
+B<Warning: Version::Finder::MetaCPAN is experimental. It might be broken, return
+incorrect results or change drastically. Help is welcome!>
+
 Version::Finder::MetaCPAN uses the L<ElasticSearch|http://www.elasticsearch.org/>
 index that backs L<MetaCPAN|http://www.elasticsearch.org/> to find the specific
 releases of distributions that satisfy the requirements defined in a
