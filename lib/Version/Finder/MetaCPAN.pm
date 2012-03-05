@@ -7,6 +7,7 @@ use ElasticSearch;
 use Exporter qw(import);
 use MetaCPAN::API;
 use Moose;
+use Tree::Simple;
 use Try::Tiny;
 use version;
 
@@ -302,5 +303,124 @@ sub build_deps {
     }
     return $finalreqs;
 }
+
+sub build_tree_deps {
+    my ($self, $dist, $ver, $reqs) = @_;
+
+    my $vfreqs = Version::Finder::MetaCPAN::Requirements->new(
+        dist => $dist,
+        version => $ver,
+        reqs => $reqs,
+    );
+
+    my $root = Tree::Simple->new($vfreqs, Tree::Simple->ROOT);
+    
+    $self->add_tree_deps($reqs, $root);
+    
+    return $root;
+}
+
+sub add_tree_deps {
+    my ($self, $req, $parent) = @_;
+    
+    # Get the information from metacpan
+    my $modules = $self->find($req);
+    
+    # Check each module…
+    foreach my $mod (@{ $modules }) {
+
+        # dependencies
+        my $depmods  = $mod->{'dependency.module'};
+        my $depvers  = $mod->{'dependency.version'};
+        my $deprels  = $mod->{'dependency.relationship'};
+        my $depphase = $mod->{'dependency.phase'};
+        
+        # No deps, skip this one
+        next unless defined($depmods);
+                
+        # Stupid thing returns a scalar rather than an arrayref if there is
+        # only one, so normalize things.
+        if(ref($depmods) ne 'ARRAY') {
+            $depmods = [ $depmods ];
+        }
+        if(ref($depvers) ne 'ARRAY') {
+            $depvers = [ $depvers ];
+        }
+        if(ref($deprels) ne 'ARRAY') {
+            $deprels = [ $deprels ];
+        }
+        if(ref($depphase) ne 'ARRAY') {
+            $depphase = [ $depphase ];
+        }
+
+        my $newreqs = CPAN::Meta::Requirements->new;
+        # Make the leaf node for this dep and fill it with 
+        my $leaf = Tree::Simple->new(Version::Finder::MetaCPAN::Requirements->new(
+            info => $mod,
+            reqs => $newreqs
+        ), $parent);
+
+        # Look at each dep…
+        for(my $i = 0; $i < scalar(@{ $depmods }); $i++) {
+
+            # Only do requires and runtime deps
+            next if $deprels->[$i] ne 'requires';
+            next if $depphase->[$i] ne 'runtime';
+
+            my $module = $depmods->[$i];
+            
+            my $dist = $self->find_distribution_for_module($module);
+            
+            if(!$dist) {
+                print "Counldn't find dist for $module, giving up. Install it your damn self.\n";
+                next;
+            }
+            # We already got perl
+            next if $dist eq 'perl';
+
+            my $ver = $depvers->[$i];
+
+            # Check if we've already chased this dep by:
+            #  Checking the cache
+            #  Checking that the version we're being asked to see is >= what we already have
+            #  Verifying that the requirements don't hate the module+version
+            unless($self->in_seen_cache($dist) && (version->parse($ver)->numify >= $self->get_from_seen_cache($dist))) {
+                # Make an entry in the cache
+                $self->add_to_seen_cache($dist, version->parse($ver)->numify);
+
+                $newreqs->add_string_requirement($dist, $ver);
+            }
+        }
+        # Recurse! Find the deps of this one!
+        $self->add_tree_deps($newreqs, $leaf);
+    }
+    # return $finalreqs;
+}
+
+sub install_it {
+    my ($self, $tree) = @_;
+    
+    if($tree->isLeaf) {
+        print "GO: cpanm --notest ".$tree->getNodeValue->info->{download_url}."\n";
+    } else {
+        my $children = $tree->getAllChildren;
+        foreach my $child (@{ $children }) {
+            $self->install_it($child);
+        }
+    }
+}
+
+package Version::Finder::MetaCPAN::Requirements;
+use Moose;
+
+has 'info' => (
+    is => 'ro',
+    isa => 'HashRef'
+);
+
+has 'reqs' => (
+    is => 'ro',
+    isa => 'CPAN::Meta::Requirements'
+);
 
 1;
