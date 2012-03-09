@@ -8,27 +8,6 @@ version 0.01
 
 # SYNOPSIS
 
-    use CPAN::Meta::Requirements;
-    use Version::Finder::MetaCPAN;
-    
-
-    my $reqs = CPAN::Meta::Requirements->new;
-    $reqs->exact_version('Foo' => '1.00');
-
-    my $vf = Version::Finder::MetaCPAN->new;
-    my $needs = $vf->find($reqs);
-    
-
-    # Returns something like
-    # [
-    #  {
-    #   version      => 1.00,
-    #   download_url => 'http://cpan.metacpan.org/authors/id/E/EX/EXAMPLE/Foo-1.00.tar.gz',
-    #   distribution => 'Foo'
-    #   # and a bunch of other stuff
-    #  }
-    # ]
-
     use Version::Finder::MetaCPAN;
     use CPAN::Meta::Requirements;
 
