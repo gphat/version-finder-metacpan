@@ -220,9 +220,8 @@ sub find_distribution_for_module {
 =method build_tree_deps ($dist, $ver, $reqs)
 
 Given a dist name, version and L<CPAN::Meta::Requirements> object this method inspects the
-dependencies recursively and returns a new L<CPAN::Meta::Requirements> object
-that contains the combined requirements of the original object and all
-dependents.
+dependencies recursively and returns a L<Tree::Simple> object representing the
+recursively resolved dependencies of all modules.
 
 =cut
 
