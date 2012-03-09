@@ -32,6 +32,34 @@ use version;
     #  }
     # ]
 
+    use Version::Finder::MetaCPAN;
+    use CPAN::Meta::Requirements;
+
+    my $req = CPAN::Meta::Requirements->new;
+    $req->add_string_requirement('Moose', '== 2.0401');
+
+    my $vf = Version::Finder::MetaCPAN->new;
+    # Find all the requirements for the Requirements we've defined.
+    # The Chart::Clicker and 2.0 parts are just for information, the $req
+    # object is all that matters.
+    my $results = $vf->build_tree_deps('Chart::Clicker', '2.0', $req);
+
+    # Flatten and get the depth
+    my @items;
+    $results->traverse(sub {
+        my ($_tree) = @_;
+        my $info = $_tree->getNodeValue->info;
+        push(@items, { depth => $_tree->getDepth, info => $info });
+    });
+
+    # Sort to find the deepest deps.
+    my @sorted = reverse sort { $a->{depth} <=> $b->{depth} } @items;
+
+    # Print out the tarballs we need
+    foreach my $item (@sorted) {
+        print $item->{info}->{download_url}."\n";
+    }
+
 =head1 DESCRIPTION
 
 B<Warning: Version::Finder::MetaCPAN is experimental. It might be broken, return
