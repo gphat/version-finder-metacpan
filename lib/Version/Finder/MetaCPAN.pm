@@ -133,7 +133,7 @@ sub find {
 
         my $dist = $self->find_distribution_for_module($pack);
         if(!$dist) {
-            print "Giving up on $pack\n";
+            print STDERR "Giving up on $pack\n";
             next;
         }
 
@@ -217,92 +217,14 @@ sub find_distribution_for_module {
     return $dist;
 }
 
-=method build_deps ($reqs)
+=method build_tree_deps ($dist, $ver, $reqs)
 
-Given a L<CPAN::Meta::Requirements> object this method inspects the
+Given a dist name, version and L<CPAN::Meta::Requirements> object this method inspects the
 dependencies recursively and returns a new L<CPAN::Meta::Requirements> object
 that contains the combined requirements of the original object and all
 dependents.
 
 =cut
-
-sub build_deps {
-    my ($self, $req) = @_;
-    
-    my $finalreqs = $req->clone;
-    
-    # Get the information from metacpan
-    my $modules = $self->find($finalreqs);
-    
-    # Check each module…
-    foreach my $mod (@{ $modules }) {
-
-        # dependencies
-        my $depmods  = $mod->{'dependency.module'};
-        my $depvers  = $mod->{'dependency.version'};
-        my $deprels  = $mod->{'dependency.relationship'};
-        my $depphase = $mod->{'dependency.phase'};
-        
-        # No deps, skip this one
-        next unless defined($depmods);
-                
-        # Stupid thing returns a scalar rather than an arrayref if there is
-        # only one, so normalize things.
-        if(ref($depmods) ne 'ARRAY') {
-            $depmods = [ $depmods ];
-        }
-        if(ref($depvers) ne 'ARRAY') {
-            $depvers = [ $depvers ];
-        }
-        if(ref($deprels) ne 'ARRAY') {
-            $deprels = [ $deprels ];
-        }
-        if(ref($depphase) ne 'ARRAY') {
-            $depphase = [ $depphase ];
-        }
-
-        # Look at each dep…
-        for(my $i = 0; $i < scalar(@{ $depmods }); $i++) {
-
-            # Only do requires and runtime deps
-            next if $deprels->[$i] ne 'requires';
-            next if $depphase->[$i] ne 'runtime';
-
-            my $module = $depmods->[$i];
-            
-            my $dist = $self->find_distribution_for_module($module);
-
-            if(!$dist) {
-                print "Counldn't find dist for $module, giving up. Install it your damn self.\n";
-                next;
-            }
-            # We already got perl
-            next if $dist eq 'perl';
-
-            my $ver = $depvers->[$i];
-
-            # Add this dep as a requirement
-            my $new_reqs = CPAN::Meta::Requirements->new;
-            $new_reqs->add_string_requirement($dist, $ver);
-            
-            # Check if we've already chased this dep by:
-            #  Checking the cache
-            #  Checking that the version we're being asked to see is >= what we already have
-            #  Verifying that the requirements don't hate the module+version
-            unless($self->in_seen_cache($dist) && (version->parse($ver)->numify >= $self->get_from_seen_cache($dist)) && $finalreqs->accepts_module($dist => $ver)) {
-                # Make an entry in the cache
-                $self->add_to_seen_cache($dist, version->parse($ver)->numify);
-                # Recurse! Find the deps of this one!
-                my $deeper = $self->build_deps($new_reqs);
-                if(defined($deeper) && scalar($deeper->required_modules)) {
-                    # Add our sub-calls reqs to ours
-                    $finalreqs->add_requirements($deeper);
-                }
-            }
-        }
-    }
-    return $finalreqs;
-}
 
 sub build_tree_deps {
     my ($self, $dist, $ver, $reqs) = @_;
@@ -383,7 +305,6 @@ sub add_tree_deps {
             # Check if we've already chased this dep by:
             #  Checking the cache
             #  Checking that the version we're being asked to see is >= what we already have
-            #  Verifying that the requirements don't hate the module+version
             unless($self->in_seen_cache($dist) && (version->parse($ver)->numify >= $self->get_from_seen_cache($dist))) {
                 # Make an entry in the cache
                 $self->add_to_seen_cache($dist, version->parse($ver)->numify);
@@ -394,21 +315,8 @@ sub add_tree_deps {
         # Recurse! Find the deps of this one!
         $self->add_tree_deps($newreqs, $leaf);
     }
-    # return $finalreqs;
 }
 
-sub install_it {
-    my ($self, $tree) = @_;
-    
-    if($tree->isLeaf) {
-        print "GO: cpanm --notest ".$tree->getNodeValue->info->{download_url}."\n";
-    } else {
-        my $children = $tree->getAllChildren;
-        foreach my $child (@{ $children }) {
-            $self->install_it($child);
-        }
-    }
-}
 
 package Version::Finder::MetaCPAN::Requirements;
 use Moose;
